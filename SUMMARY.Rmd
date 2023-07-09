@@ -1,0 +1,15 @@
+---
+title: "Jane Street Dice Puzzle"
+output: html_document
+date: `r Sys.date()`
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+The following (YouTube video)[https://www.youtube.com/watch?v=NT_I1MjckaU&t=251s] proposed a puzzle with the following rules:
+
+* 
