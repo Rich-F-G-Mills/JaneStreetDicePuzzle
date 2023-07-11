@@ -1,15 +1,381 @@
 ---
 title: "Jane Street Dice Puzzle"
-output: html_document
-date: `r Sys.date()`
+output: 
+  html_document: 
+    keep_md: yes
+    pandoc_args: ["--lua-filter=ASSETS/colour-text.lua"]
+author: "Richard Mills"
+date: "`r Sys.Date()`"
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo=FALSE)
+knitr::opts_chunk$set(include=FALSE)
+
+Nmax <- 100L
+Dmax <- 20L
+```
+
+```{cat, engine.opts = list(file = "ASSETS/colour-text.lua")}
+Span = function(el)
+  fore_colour = el.attributes['foreground']
+  back_colour = el.attributes['background']
+  
+  -- if no colours specified, return unchange
+  if fore_colour == nil and back_colour == nil then return el end
+
+  -- transform to <span style="..."></span>
+  if FORMAT:match 'html' then
+    style_str = ""
+  
+    -- remove color attributes
+    el.attributes['foreground'] = nil
+    el.attributes['background'] = nil
+    
+    if fore_colour ~= nil then
+      style_str = style_str .. 'color:' .. fore_colour .. ';'
+    end
+    
+    if back_colour ~= nil then
+      style_str = style_str .. 'background-color:' .. back_colour .. ';'
+    end
+    
+    -- use style attribute instead
+    el.attributes['style'] = style_str
+    
+    -- return full span element
+    return el
+  else
+    -- for other format return unchanged
+    return el
+  end
+end
+```
+
+```{r loadLibraries}
+library (ggplot2, warn.conflicts = FALSE)
+library (glue, warn.conflicts = FALSE)
+library (rlang, warn.conflicts = FALSE)
+```
+
+```{r loadVariants}
+source('SCRIPTS/PART_1.R', local = knitr::knit_global())
+source('SCRIPTS/VISUALS.R', local = knitr::knit_global())
+```
+
+```{r registerLocalChunkHook}
+knitr::opts_hooks$set(
+  local =
+    function (options) {
+      options$code <-
+        paste('local({', glue::glue_collapse(options$code, sep = '\n'), '})')
+      
+      options
+    }
+)
+```
+
+```{css include = TRUE}
+h2 {
+  text-decoration: underline;
+}
+
+p:has(+ ul) {
+  margin-bottom: 0;
+}
 ```
 
 ## Introduction
 
-The following (YouTube video)[https://www.youtube.com/watch?v=NT_I1MjckaU&t=251s] proposed a puzzle with the following rules:
+The purpose of this note is to show proposed solutions to the first two Jane Street dice puzzles proposed within the following [YouTube video](https://www.youtube.com/watch?v=NT_I1MjckaU&t=251s).
 
-* 
+## First Variant
+
+The following rules apply:
+
+* There is a `r Dmax`-sided die.
+* There are `r Nmax` turns.
+* At each turn, the player can choose to either:
+  - "Take" (ie. bank) the value as currently shown on the die.
+  - Re-roll the dice, but without any pay-off.
+* The die initially shows a value of 1.
+
+For example, the player could elect to repeatedly take the opening value of 1 for all `r Nmax` turns, giving a final banked value of `r Nmax`.
+
+### Possible Solution (Toy Example)
+
+As a simplified toy example, instead assume we have a 4-sided die over 6 turns.
+
+* Each node (ie. circle) represents a decision-point.
+* Those with a [**red**]{foreground="red"} and [**blue**]{foreground="blue"} outline reflect those nodes where the optimal decision is to roll and take respectively.
+* The expected future gain from such a decision is shown by the top and bottom numbers within each node; where both scores are the same, a take is prioritised.
+* The extent of the [**fill**]{background="lightblue"} within each node shows the probability of the player reaching that node, within a given turn.
+* For those nodes where the player should <u>**take**</u> the current die value, that value is maintained for the next turn as represented by the **thick black** horizontal lines. We note that all such nodes are absorbing states.
+* Whereas, for those where the player should <u>**roll**</u>, there is an equal chance of landing on any die value for the next turn.
+
+```{r part1ToyExample, local = TRUE, results = 'asis', include = TRUE}
+exampleResults <-
+  fnPartIResults(Dmax = 4L, Nmax = 6L)
+
+margin <-
+  list(X = 50.0, Y = 100.0)
+
+radius <- 17.0
+
+style <-
+  local({
+    nodestyle <-
+      htmltools::css(
+        `stroke-width` = '2px',
+        fill = 'white'
+      )
+    
+    textStyle <-
+      htmltools::css(
+        `text-anchor` = 'middle',
+        `alignment-baseline` = 'middle'
+      )
+    
+    shiny::tags$style(
+      glue::glue(
+        'circle {<nodestyle>} text {<textStyle>}',
+        .open = '<',
+        .close = '>'
+      )
+    )
+  })
+
+nodes <-
+  exampleResults$STRATEGY |>
+  dplyr::left_join(
+    exampleResults$CUMULATIVE_PROBS |>
+      dplyr::count(N, D, wt = PROB, name = 'PROB'),
+    by = c('N', 'D')
+  ) |>
+  dplyr::mutate(
+    CX = 2.0 * margin$X + N * 75.0,
+    CY = margin$Y + (D - 1.0) * 55.0,
+    PROB_Y = CY - (radius - 1.0) + (2.0 * (radius - 1.0) * (1.0 - PROB))
+  ) |>
+  dplyr::rowwise() |>
+  dplyr::mutate(
+    NODE =
+      list(
+        shiny::tags$circle(
+          cx = CX,
+          cy = CY,
+          r = radius,
+          stroke =
+            dplyr::if_else(TAKE, 'blue', 'red')
+        )
+      ),
+    PROB_FILL =
+      list(
+        shiny::tags$rect(
+          x = CX - (radius - 1.0),
+          y = PROB_Y,
+          width = 2.0 * (radius - 1.0),
+          height = 2.0 * (radius - 1.0) * PROB,
+          fill = 'lightblue',
+          `clip-path` =
+            glue::glue('circle({radius-1}px at 50% {CY - PROB_Y}px)')
+        )
+      ),
+    VALUE_ROLL =
+      list(
+        shiny::tags$text(
+          scales::number(VALUE_ROLL, accuracy = 0.1),
+          `font-size` = '75%',
+          x = CX,
+          y = CY - 7.5
+        )
+      ),
+    VALUE_TAKE =
+      list(
+        shiny::tags$text(
+          scales::number(VALUE_TAKE, accuracy = 0.1),
+          `font-size` = '75%',
+          x = CX,
+          y = CY + 7.5
+        )
+      )
+  ) |>
+  dplyr::ungroup()
+
+lines <-
+  nodes |>
+  dplyr::inner_join(
+    nodes |>
+      dplyr::transmute(
+        NEXT_N = N,
+        NEXT_D = D,
+        N = NEXT_N - 1L,
+        NEXT_CX = CX,
+        NEXT_CY = CY
+      ),
+    by = 'N',
+    relationship = 'many-to-many'
+  ) |>
+  dplyr::filter(
+    (TAKE & (D == NEXT_D)) | !TAKE
+  ) |>
+  dplyr::rowwise() |>
+  dplyr::transmute(
+    ELEMENT =
+      list(
+        shiny::tags$line(
+          x1 = CX,
+          x2 = NEXT_CX,
+          y1 = CY,
+          y2 = NEXT_CY,
+          stroke = dplyr::case_when(TAKE ~ 'black', TRUE ~ 'grey'),
+          `stroke-width` = dplyr::case_when(TAKE ~ '3px', TRUE ~ '1px')
+        )
+      )
+  )
+
+diceRolls <-
+  nodes |>
+  dplyr::distinct(D, CY) |>
+  dplyr::mutate(
+    X = 50.0,
+    Y = CY - radius - 5.0,
+    HEIGHT = 2.0 * (radius + 5.0),
+    WIDTH = max(nodes$CX) - min(nodes$CX) + 100.0
+  ) |>
+  dplyr::rowwise() |>
+  dplyr::mutate(
+    TEXT =
+      list(shiny::tags$text(D, x = 65.0, y = CY)),
+    RECT =
+      list(
+        shiny::tags$rect(
+          x = X,
+          y = Y,
+          width = WIDTH,
+          height = HEIGHT,
+          fill = '#f0e1f7'
+        )
+      )
+  ) |>
+  dplyr::ungroup()
+
+turns <-
+  nodes |>
+  dplyr::group_by(N, CX) |>
+  dplyr::summarise(MAX_CY = max(CY), .groups = 'drop') |>
+  dplyr::rowwise() |>
+  dplyr::mutate(
+    TEXT =
+      list(
+        shiny::tags$text(
+          dplyr::case_match(N, 0L ~ 'START', .default = as.character(N)),
+          x = CX,
+          y = 50.0
+        )
+      ),
+    LINE =
+      list(
+        shiny::tags$line(
+          x1 = CX,
+          x2 = CX,
+          y1 = 60.0,
+          y2 = MAX_CY,
+          `stroke-dasharray` = '2 2',
+          stroke = 'black'
+        )
+      )
+  ) |>
+  dplyr::ungroup()
+
+diceAxisTitle <-
+  local({
+    x <- 25.0
+    y <-
+      nodes |>
+      dplyr::pull(CY) |>
+      unique() |>
+      mean()
+    
+    shiny::tags$text(
+      'DICE ROLL',
+      `font-weight` = 'bold',
+      transform =
+        glue::glue('translate({x}, {y}) rotate(-90)')
+    )
+  })
+
+turnAxisTitle <-
+  shiny::tags$text(
+    'TURN',
+    x =
+      nodes |>
+      dplyr::pull(CX) |>
+      unique() |>
+      mean(),
+    y = 25.0,
+    `font-weight` = 'bold'
+  )
+
+shiny::tags$svg(
+  style,
+  diceRolls$RECT,
+  turns$LINE,
+  lines$ELEMENT,
+  nodes$NODE,
+  nodes$PROB_FILL,
+  nodes$VALUE_ROLL,
+  nodes$VALUE_TAKE,
+  diceRolls$TEXT,
+  turns$TEXT,
+  diceAxisTitle,
+  turnAxisTitle,
+  viewbox =
+    glue::glue('0 0 {max(nodes$CX) + margin$X} {max(nodes$CY) + margin$Y}')
+)
+```
+
+We are now ready to consider the full puzzle specification.
+
+## Proposed Solution (Original Puzzle) {.tabset}
+
+```{r processVariant1}
+variant1Analysis <-
+  xfun::cache_rds(
+    expr = { fnPartIResults(Dmax = 20L, Nmax = 100L) },
+    hash = list(Dmax, Nmax),
+    dir = 'cache/'
+  )
+```
+
+Here we consider the `r Dmax` sided die across `r Nmax` turns.
+
+Using the same approach as for the toy example above, we get the following:
+
+### Strategy
+
+```{r include = TRUE}
+fnPlotRecommendedStrategy(variant1Analysis$STRATEGY)
+```
+
+### Visits
+
+```{r include = TRUE}
+fnPlotDistributionByTurn(variant1Analysis$CUMULATIVE_PROBS)
+```
+
+### Outcomes
+
+```{r include = TRUE}
+fnPlotDistributionClosingScores(variant1Analysis$CUMULATIVE_PROBS)
+```
+
+
+**Rules for the second variant:**
+
+As above but with the following differences:
+
+* Any time the player chooses to bank the current value, the next turn (assuming turns remaining), must be a roll of the die.
+* Unlike the decision to bank, there is no limit to consecutive rolls.
+
+For example, the player could roll, bank, roll, roll, bank, etc...
