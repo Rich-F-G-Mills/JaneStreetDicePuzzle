@@ -1,7 +1,11 @@
 ---
 title: "Jane Street Dice Puzzle"
 output: 
-  html_document: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: true
     keep_md: yes
     pandoc_args: ["--lua-filter=ASSETS/colour-text.lua"]
 author: "Richard Mills"
@@ -60,6 +64,7 @@ library (rlang, warn.conflicts = FALSE)
 
 ```{r loadVariants}
 source('SCRIPTS/PART_1.R', local = knitr::knit_global())
+source('SCRIPTS/PART_2.R', local = knitr::knit_global())
 source('SCRIPTS/VISUALS.R', local = knitr::knit_global())
 ```
 
@@ -68,7 +73,7 @@ knitr::opts_hooks$set(
   local =
     function (options) {
       options$code <-
-        paste('local({', glue::glue_collapse(options$code, sep = '\n'), '})')
+        paste('local({\n', glue::glue_collapse(options$code, sep = '\n'), '\n})')
       
       options
     }
@@ -83,6 +88,10 @@ h2 {
 p:has(+ ul) {
   margin-bottom: 0;
 }
+  
+#TOC > ul > li {
+  font-weight: bold
+}
 ```
 
 ## Introduction
@@ -93,12 +102,12 @@ The purpose of this note is to show proposed solutions to the first two Jane Str
 
 The following rules apply:
 
-* There is a `r Dmax`-sided die.
-* There are `r Nmax` turns.
-* At each turn, the player can choose to either:
-  - "Take" (ie. bank) the value as currently shown on the die.
-  - Re-roll the dice, but without any pay-off.
-* The die initially shows a value of 1.
+-   There is a `r Dmax`-sided die.
+-   There are `r Nmax` turns.
+-   At each turn, the player can choose to either:
+    -   "Take" (ie. bank) the value as currently shown on the die.
+    -   Re-roll the dice, but without any pay-off.
+-   The die initially shows a value of 1.
 
 For example, the player could elect to repeatedly take the opening value of 1 for all `r Nmax` turns, giving a final banked value of `r Nmax`.
 
@@ -108,10 +117,12 @@ As a simplified toy example, instead assume we have a 4-sided die over 6 turns.
 
 * Each node (ie. circle) represents a decision-point.
 * Those with a [**red**]{foreground="red"} and [**blue**]{foreground="blue"} outline reflect those nodes where the optimal decision is to roll and take respectively.
+* This is based on the expected value of nodes for the following turn.
 * The expected future gain from such a decision is shown by the top and bottom numbers within each node; where both scores are the same, a take is prioritised.
 * The extent of the [**fill**]{background="lightblue"} within each node shows the probability of the player reaching that node, within a given turn.
 * For those nodes where the player should <u>**take**</u> the current die value, that value is maintained for the next turn as represented by the **thick black** horizontal lines. We note that all such nodes are absorbing states.
 * Whereas, for those where the player should <u>**roll**</u>, there is an equal chance of landing on any die value for the next turn.
+* At any given node, it is assumed that the player will always take the action that leads to the largest (expected) increase in pay-off.
 
 ```{r part1ToyExample, local = TRUE, results = 'asis', include = TRUE}
 exampleResults <-
@@ -146,7 +157,21 @@ style <-
   })
 
 nodes <-
-  exampleResults$STRATEGY |>
+  exampleResults$OUTCOMES |>
+  dplyr::mutate(
+    STRATEGY = dplyr::if_else(TAKE, 'TAKE', 'ROLL'),
+    .keep = 'unused'
+  ) |>
+  tidyr::pivot_wider(
+    names_from = STRATEGY,
+    values_from = VALUE,
+    names_prefix = 'VALUE_'
+  ) |>
+  dplyr::left_join(
+    exampleResults$STRATEGY |>
+      dplyr::select(N, D, TAKE),
+    by = c('N', 'D')
+  ) |>
   dplyr::left_join(
     exampleResults$CUMULATIVE_PROBS |>
       dplyr::count(N, D, wt = PROB, name = 'PROB'),
@@ -263,7 +288,7 @@ diceRolls <-
 turns <-
   nodes |>
   dplyr::group_by(N, CX) |>
-  dplyr::summarise(MAX_CY = max(CY), .groups = 'drop') |>
+  dplyr::summarise(MIN_CY = min(CY), .groups = 'drop') |>
   dplyr::rowwise() |>
   dplyr::mutate(
     TEXT =
@@ -280,7 +305,7 @@ turns <-
           x1 = CX,
           x2 = CX,
           y1 = 60.0,
-          y2 = MAX_CY,
+          y2 = MIN_CY,
           `stroke-dasharray` = '2 2',
           stroke = 'black'
         )
@@ -331,51 +356,346 @@ shiny::tags$svg(
   diceAxisTitle,
   turnAxisTitle,
   viewbox =
-    glue::glue('0 0 {max(nodes$CX) + margin$X} {max(nodes$CY) + margin$Y}')
+    glue::glue('0 0 {max(nodes$CX) + margin$X} {max(nodes$CY) + margin$Y - 50.0}')
 )
 ```
 
 We are now ready to consider the full puzzle specification.
 
-## Proposed Solution (Original Puzzle) {.tabset}
+### Proposed Solution (Original Puzzle) {.tabset}
 
 ```{r processVariant1}
 variant1Analysis <-
   xfun::cache_rds(
-    expr = { fnPartIResults(Dmax = 20L, Nmax = 100L) },
-    hash = list(Dmax, Nmax),
+    expr = { fnPartIResults(Dmax, Nmax) },
+    hash =
+      list(
+        Dmax,
+        Nmax,
+        fs::file_info('SCRIPTS/PART_1.R')$modification_time
+      ),
     dir = 'cache/'
   )
 ```
 
 Here we consider the `r Dmax` sided die across `r Nmax` turns.
 
-Using the same approach as for the toy example above, we get the following:
+Due to the number of decision points, we cannot use the same layout as for the toy example above.
 
-### Strategy
+However, we can still use the same underlying approach to identify the recommended strategy.
+
+<br/>
+
+#### Strategy
+
+* When the game starts, the player must always roll.
+* Should the die show any value on/above 18, the player is recommended to continually take for all remaining turns.
+* This also becomes the case for lower die values, once the game progresses.
+* These dice rolls effectively become **absorbing states**, albeit after a varying number of passed turns.
+* For the last turn, as expected, the player is recommended to take the value regardless as there is no benefit from rolling.
 
 ```{r include = TRUE}
 fnPlotRecommendedStrategy(variant1Analysis$STRATEGY)
 ```
 
-### Visits
+#### Visits
+
+-   This clearly highlights that, as turns progress, we are attracted to dice rolls 18, 19 and 20.
+-   This is because, once those values are obtained, the strategy dictates that we will repeatedly take those values, with<u>out</u> any rolls.
+-   Consequently, the probability of all other dice rolls approaches zero.
 
 ```{r include = TRUE}
 fnPlotDistributionByTurn(variant1Analysis$CUMULATIVE_PROBS)
 ```
 
-### Outcomes
+#### Outcomes
 
-```{r include = TRUE}
-fnPlotDistributionClosingScores(variant1Analysis$CUMULATIVE_PROBS)
+```{r}
+variant1Expected <-
+  variant1Analysis$CUMULATIVE_PROBS |>
+  dplyr::slice_max(order_by = N) |>
+  dplyr::summarise(
+    EXPECTED = sum(PROB * VALUE)
+  ) |>
+  dplyr::pull(EXPECTED)
 ```
 
+-   The maximum possible score is `r Dmax` x `r Nmax` = `r scales::comma(Nmax * Dmax)`.
+-   As a consequence of the strategy, we see that some values are more likely than others; we would expect the more significant spikes to be "near" multiples of 18, 19 and 20.
+-   The expected closing score is `r scales::number(variant1Expected, accuracy = 0.1, big.mark = ',')`, as indicated by the vertical [red]{foreground="red"} line.
 
-**Rules for the second variant:**
+```{r include = TRUE}
+fnPlotDistributionClosingScores(variant1Analysis$CUMULATIVE_PROBS) +
+  geom_vline(xintercept = variant1Expected, color = 'red')
+```
 
-As above but with the following differences:
+## Second Variant
 
-* Any time the player chooses to bank the current value, the next turn (assuming turns remaining), must be a roll of the die.
-* Unlike the decision to bank, there is no limit to consecutive rolls.
+The rules are as for the first variant above, but with the following differences:
+
+-   Any time the player chooses to bank the current value, the next turn (assuming turns remaining), must be a roll of the die.
+-   Unlike the decision to bank, there is no limit to consecutive rolls.
 
 For example, the player could roll, bank, roll, roll, bank, etc...
+
+### Proposed Solution (Toy Example)
+
+Revisiting the same toy example as before, we now observe the following.
+
+* Note that the layout is different as the available action at a given node depends on what action was taken for the <u>previous</u> turn; specifically, if a value was taken during the previous turn, the player **must** roll for the current turn.
+* For nodes where a roll can is taken ([**red**]{foreground="red"} outline), lines connect to those nodes for the next turn which have the highest expected value for each respective dice roll.
+* For nodes where the value is taken ([**blue**]{foreground="blue"} outline), the node is directly linked (via **thick black** line) to the corresponding roll for that same die value at the next turn.
+
+```{r part2ToyExample, local = TRUE, results = 'asis', include = TRUE}
+exampleResults <-
+  fnPartIIResults(Dmax = 4L, Nmax = 6L)
+
+margin <-
+  list(X = 50.0, Y = 100.0)
+
+radius <- 17.0
+
+style <-
+  local({
+    nodestyle <-
+      htmltools::css(
+        `stroke-width` = '2px',
+        fill = 'white'
+      )
+
+    textStyle <-
+      htmltools::css(
+        `text-anchor` = 'middle',
+        `alignment-baseline` = 'middle'
+      )
+
+    shiny::tags$style(
+      glue::glue(
+        'circle {<nodestyle>} text {<textStyle>}',
+        .open = '<',
+        .close = '>'
+      )
+    )
+  })
+
+nodes <-
+  exampleResults$OUTCOMES |>
+  dplyr::mutate(
+    CX = 2.0 * margin$X + N * 125.0,
+    CY = margin$Y + (D - 1.0) * 100.0 + TAKE * 40.0
+  ) |>
+  dplyr::rowwise() |>
+  dplyr::mutate(
+    NODE =
+      list(
+        shiny::tags$circle(
+          cx = CX,
+          cy = CY,
+          r = radius,
+          stroke =
+            dplyr::if_else(TAKE, 'blue', 'red')
+        )
+      ),
+    VALUE_TEXT =
+      list(
+        shiny::tags$text(
+          scales::number(VALUE, accuracy = 0.1),
+          `font-size` = '75%',
+          x = CX,
+          y = CY
+        )
+      )
+  ) |>
+  dplyr::ungroup()
+
+lines <-
+  nodes |>
+  dplyr::select(N, D, TAKE, CX, CY) |>
+  dplyr::inner_join(
+    nodes |>
+      dplyr::transmute(
+        NEXT_N = N,
+        NEXT_D = D,
+        N = NEXT_N - 1L,
+        NEXT_CX = CX,
+        NEXT_CY = CY,
+        NEXT_TAKE = TAKE,
+        NEXT_VALUE = VALUE
+      ),
+    by = 'N',
+    relationship = 'many-to-many'
+  ) |>
+  dplyr::arrange(
+    N,
+    D,
+    # Prioritise TAKEs.
+    !TAKE
+  ) |>
+  dplyr::filter(
+    (TAKE & (!NEXT_TAKE) & (D == NEXT_D)) | !TAKE
+  ) |>
+  dplyr::slice_max(order_by = NEXT_VALUE, by = c('N', 'D', 'TAKE', 'NEXT_D')) |>
+  dplyr::rowwise() |>
+  dplyr::transmute(
+    ELEMENT =
+      list(
+        shiny::tags$line(
+          x1 = CX,
+          x2 = NEXT_CX,
+          y1 = CY,
+          y2 = NEXT_CY,
+          stroke = dplyr::if_else(TAKE, 'black', 'grey'),
+          `stroke-width` = dplyr::if_else(TAKE, '3px', '1px')
+        )
+      )
+  )
+
+diceRolls <-
+  nodes |>
+  dplyr::group_by(D) |>
+  dplyr::summarise(
+    X = 50.0,
+    Y = min(CY) - radius - 5.0,
+    YMID = (min(CY) + max(CY)) / 2.0,
+    HEIGHT = max(CY) + radius + 5.0 - Y,
+    WIDTH = max(nodes$CX) - min(nodes$CX) + 100.0,
+    .groups = 'drop'
+  ) |>
+  dplyr::rowwise() |>
+  dplyr::mutate(
+    TEXT =
+      list(shiny::tags$text(D, x = 65.0, y = YMID)),
+    RECT =
+      list(
+        shiny::tags$rect(
+          x = X,
+          y = Y,
+          width = WIDTH,
+          height = HEIGHT,
+          fill = '#f0e1f7'
+        )
+      )
+  ) |>
+  dplyr::ungroup()
+
+turns <-
+  nodes |>
+  dplyr::group_by(N, CX) |>
+  dplyr::summarise(MIN_CY = min(CY), .groups = 'drop') |>
+  dplyr::rowwise() |>
+  dplyr::mutate(
+    TEXT =
+      list(
+        shiny::tags$text(
+          dplyr::case_match(N, 0L ~ 'START', .default = as.character(N)),
+          x = CX,
+          y = 50.0
+        )
+      ),
+    LINE =
+      list(
+        shiny::tags$line(
+          x1 = CX,
+          x2 = CX,
+          y1 = 60.0,
+          y2 = MIN_CY,
+          `stroke-dasharray` = '2 2',
+          stroke = 'black'
+        )
+      )
+  ) |>
+  dplyr::ungroup()
+
+diceAxisTitle <-
+  local({
+    x <- 25.0
+    y <-
+      nodes |>
+      dplyr::pull(CY) |>
+      unique() |>
+      mean()
+
+    shiny::tags$text(
+      'DICE ROLL',
+      `font-weight` = 'bold',
+      transform =
+        glue::glue('translate({x}, {y}) rotate(-90)')
+    )
+  })
+
+turnAxisTitle <-
+  shiny::tags$text(
+    'TURN',
+    x =
+      nodes |>
+      dplyr::pull(CX) |>
+      unique() |>
+      mean(),
+    y = 25.0,
+    `font-weight` = 'bold'
+  )
+
+shiny::tags$svg(
+  style,
+  diceRolls$RECT,
+  turns$LINE,
+  lines$ELEMENT,
+  nodes$NODE,
+  nodes$VALUE_TEXT,
+  diceRolls$TEXT,
+  turns$TEXT,
+  diceAxisTitle,
+  turnAxisTitle,
+  viewbox =
+    glue::glue('0 0 {max(nodes$CX) + margin$X} {max(nodes$CY) + margin$Y - 50.0}')
+)
+```
+
+We notice that for the opening turn, under the desire to maximize the expected pay-off, we should take the opening value of 1.
+
+We are now ready to consider the full puzzle specification.
+
+### Proposed Solution (Original Puzzle) {.tabset}
+
+```{r processVariant2}
+variant2Analysis <-
+  xfun::cache_rds(
+    expr = { fnPartIIResults(Dmax, Nmax) },
+    hash =
+      list(
+        Dmax,
+        Nmax,
+        fs::file_info('SCRIPTS/PART_2.R')$modification_time
+      ),
+    dir = 'cache/'
+  )
+```
+
+#### Strategy
+
+```{r fig.height = 8, include = TRUE}
+variant2Analysis$STRATEGY |>
+  dplyr::filter(N > 0L) |>
+  fnPlotRecommendedStrategy(
+    title =
+      'Recommended strategy by turn, dice roll and prior action.'
+  ) +
+  facet_grid(
+    PRIOR_TAKE ~ .,
+    labeller =
+      labeller(
+        PRIOR_TAKE =
+          c(`FALSE` = 'PRIOR WAS ROLL', `TRUE` = 'PRIOR WAS TAKE')
+      )
+  )
+```
+
+#### Visits
+
+```{r include = TRUE}
+fnPlotDistributionByTurn(variant2Analysis$CUMULATIVE_PROBS)
+```
+
+#### Outcomes
+
+

@@ -1,49 +1,95 @@
 
 fnPartIResults <-
   function (Dmax, Nmax) {
-    strategy <-
+    outcomes <-
       seq.int(from = Nmax - 1L, to = 0L) |>
       purrr::accumulate(
-        function (prior, n) {
-          tibble::tibble(
-            D = seq.int(Dmax),
-            N = n
-          ) |>
-          dplyr::left_join(
-            prior |>
-              dplyr::transmute(
-                D,
-                NEXT_VALUE = VALUE
-              ),
-            by = 'D'
-          ) |>
-          dplyr::transmute(
-            N,
-            D,
-            VALUE_TAKE = D + NEXT_VALUE,
-            VALUE_ROLL = mean(NEXT_VALUE),
-            VALUE = pmax(VALUE_TAKE, VALUE_ROLL),
-            TAKE = VALUE_TAKE >= VALUE_ROLL
-          )
+        function (nextTurn, n) {
+          toProcess <-
+            tibble::tibble(
+              D = seq.int(Dmax),
+              N = n
+            ) |>
+            tidyr::expand_grid(
+              TAKE = c(TRUE, FALSE)
+            ) |>
+            tidyr::expand_grid(
+              nextTurn |>
+                dplyr::transmute(
+                  NEXT_D = D,
+                  NEXT_VALUE = VALUE,
+                  NEXT_TAKE = TAKE
+                )
+            ) |>
+            dplyr::filter(
+              (TAKE & (D == NEXT_D)) | !TAKE
+            ) |>
+            # Prioritise TAKEs.
+            dplyr::arrange(N, D, !TAKE)
+          
+          toProcess |>
+            dplyr::filter(TAKE) |>
+            dplyr::slice_max(order_by = NEXT_VALUE, with_ties = FALSE, by = D) |>
+            dplyr::mutate(
+              VALUE = D + NEXT_VALUE
+            ) |>
+            dplyr::select(
+              N,
+              D,
+              TAKE,
+              VALUE
+            ) |>
+            dplyr::bind_rows(
+              toProcess |>
+                dplyr::filter(!TAKE) |>
+                dplyr::group_by(
+                  N,
+                  D,
+                  TAKE,
+                  NEXT_D
+                ) |>
+                dplyr::summarise(
+                  NEXT_VALUE = max(NEXT_VALUE),
+                  .groups = 'drop_last'
+                ) |>
+                dplyr::summarise(
+                  VALUE = mean(NEXT_VALUE),
+                  .groups = 'drop'
+                ) |>
+                dplyr::select(
+                  N,
+                  D,
+                  TAKE,
+                  VALUE
+                )
+            )
         },
         .init =
           tibble::tibble(
             N = Nmax,
             D = seq.int(Dmax),
-            VALUE_TAKE = D,
-            VALUE_ROLL = 0.0,
-            VALUE = VALUE_TAKE,
+            VALUE = D,
             TAKE = TRUE
+          ) |>
+          dplyr::bind_rows(
+            tibble::tibble(
+              N = Nmax,
+              D = seq.int(Dmax),
+              VALUE = 0.0,
+              TAKE = FALSE
+            )
           )
       ) |>
       dplyr::bind_rows() |>
       dplyr::filter(
         (N > 0L) | (D == 1L)
       ) |>
-      dplyr::arrange(
-        N,
-        D
-      )
+      # Prioritise TAKEs.
+      dplyr::arrange(N, D, !TAKE)
+    
+    strategy <-
+      outcomes |>
+      dplyr::slice_max(order_by = VALUE, by = c(N, D))
     
     cumulativeProbs <-
       strategy |>
@@ -101,7 +147,10 @@ fnPartIResults <-
       )
     
     list(
+      OUTCOMES = outcomes,
       STRATEGY = strategy,
       CUMULATIVE_PROBS = cumulativeProbs
     )
   }
+
+
