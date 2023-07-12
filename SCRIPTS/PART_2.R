@@ -5,6 +5,7 @@ fnPartIIResults <-
       seq.int(from = Nmax - 1L, to = 0L) |>
       purrr::accumulate(
         function (nextTurn, n) {
+          # As per the first game variant.
           toProcess <-
             tibble::tibble(
               D = seq.int(Dmax),
@@ -21,14 +22,11 @@ fnPartIIResults <-
                   NEXT_TAKE = TAKE
                 )
             ) |>
-            dplyr::filter(
-              (TAKE & (!NEXT_TAKE) & (D == NEXT_D)) | !TAKE
-            ) |>
-            # Prioritise TAKEs.
             dplyr::arrange(N, D, !TAKE)
           
           toProcess |>
-            dplyr::filter(TAKE) |>
+            # Note the requirement that we cannot have 2x consecutive takes.
+            dplyr::filter(TAKE, !NEXT_TAKE, D == NEXT_D) |>
             dplyr::mutate(
               VALUE = D + NEXT_VALUE
             ) |>
@@ -47,6 +45,7 @@ fnPartIIResults <-
                   TAKE,
                   NEXT_D
                 ) |>
+                # Same underlying approach as per the first variant.
                 dplyr::summarise(
                   NEXT_VALUE = max(NEXT_VALUE),
                   .groups = 'drop_last'
@@ -86,30 +85,31 @@ fnPartIIResults <-
       # Prioritise TAKEs.
       dplyr::arrange(N, D, !TAKE)
     
+    # Here the strategy derivation is more complex as:
+    #  - Not all combinations of play are possible; ie... Cannot have 2x consecutive takes.
+    #  - As such... The optimal strategy depends on the chosen action for the previous turn.
     strategy <-
       outcomes |>
       dplyr::filter(N > 0L) |>
       dplyr::group_by(N) |>
       dplyr::group_split() |>
       purrr::accumulate(
-        function (prior, current) {
-          prior |>
+        function (priorTurn, currentTurn) {
+          priorTurn |>
             dplyr::transmute(
               PRIOR_D = D,
               PRIOR_TAKE = TAKE
             ) |>
             tidyr::expand_grid(
-              current
+              currentTurn
             ) |>
             dplyr::filter(
+              # Again, noting the requirement regarding consecutive takes.
               (PRIOR_TAKE & (!TAKE) & (PRIOR_D == D)) | !PRIOR_TAKE
             ) |>
-            dplyr::arrange(
-              N,
-              D,
-              # Prioritise TAKEs.
-              !TAKE
-            ) |>
+            dplyr::arrange(N, D, !TAKE) |>
+            # Note that the optimal strategy for a given node depends
+            # on what happened for the previous turn.
             dplyr::slice_max(
               order_by = VALUE,
               with_ties = FALSE,
@@ -137,14 +137,15 @@ fnPartIIResults <-
         TAKE
       )
     
+    # As per the first variant.
     cumulativeProbs <-
       strategy |>
       dplyr::filter(N > 0L) |>
       dplyr::group_by(N) |>
       dplyr::group_split() |>
       purrr::accumulate(
-        function (prior, current) {
-          prior |>
+        function (priorTurn, currentTurn) {
+          priorTurn |>
             dplyr::select(
               -N,
               -PRIOR_TAKE
@@ -155,7 +156,7 @@ fnPartIIResults <-
               replacement = 'PRIOR_'
             ) |>
             dplyr::left_join(
-              current,
+              currentTurn,
               by = 'PRIOR_TAKE',
               relationship = 'many-to-many'
             ) |>
@@ -163,13 +164,16 @@ fnPartIIResults <-
               (PRIOR_TAKE & (!TAKE) & (PRIOR_D == D)) | !PRIOR_TAKE
             ) |>
             dplyr::mutate(
-              VALUE = PRIOR_VALUE + dplyr::if_else(TAKE, D * 1.0, 0.0),
-              PROB = dplyr::if_else(PRIOR_TAKE, PRIOR_PROB, PRIOR_PROB / Dmax)
+              VALUE =
+                PRIOR_VALUE + dplyr::if_else(TAKE, D * 1.0, 0.0),
+              PROB =
+                dplyr::if_else(PRIOR_TAKE, PRIOR_PROB, PRIOR_PROB / Dmax)
             ) |>
             dplyr::count(
               N,
               D,
               VALUE,
+              # Again, noting that the strategy depends on the previous action.
               PRIOR_TAKE,
               TAKE,
               wt = PROB,

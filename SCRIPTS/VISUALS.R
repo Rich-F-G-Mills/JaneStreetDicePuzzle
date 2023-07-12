@@ -22,7 +22,11 @@ fnPlotRecommendedStrategy <-
           title %||% 'Recommended strategy by turn and dice roll.'
       ) +
       cowplot::theme_half_open() +
-      cowplot::background_grid(major = 'y', minor = 'none', colour.major = 'black') +
+      cowplot::background_grid(
+        major = 'y',
+        minor = 'none',
+        colour.major = 'black'
+      ) +
       theme(
         legend.position = 'bottom'
       )
@@ -46,7 +50,7 @@ fnPlotDistributionClosingScores <-
       ) +
       scale_y_continuous(
         name = 'Probability',
-        labels = scales::label_percent(accuracy = 1.0)
+        labels = scales::label_percent(accuracy = 0.1)
       ) +
       ggtitle(
         label = 'Distribution of closing scores.'
@@ -99,7 +103,7 @@ fnPlotDistributionByTurn <-
         expand = expansion()
       ) +
       scale_y_continuous(
-        name = 'Dice Roll',
+        name = 'Cumulative Probability',
         expand = expansion(),
         labels = scales::label_percent(accuracy = 1.0)
       ) +
