@@ -2,6 +2,5 @@
 .Rhistory
 .RData
 .Ruserdata
-*.md
 cache/
 SUMMARY_files/

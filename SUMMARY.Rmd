@@ -6,6 +6,7 @@ output:
     toc_float:
       smooth_scroll: yes
     pandoc_args: "--lua-filter=ASSETS/colour-text.lua"
+    keep_md: yes
 author: "Richard Mills"
 date: "`r Sys.Date()`"
 ---
