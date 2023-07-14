@@ -387,8 +387,6 @@ Due to the number of decision points, we cannot use the same layout as for the t
 
 However, we can still use the same underlying approach to identify the recommended strategy.
 
-<br/>
-
 #### Strategy
 
 * When the game starts, the player should always roll.
@@ -815,7 +813,7 @@ variant3ClosingSummary <-
 
 * The maximum possible score was `r scales::comma(variant3ClosingSummary$MAX)`.
 * The expected closing score, using the proposed strategy, is `r scales::number(variant3ClosingSummary$EXPECTED, accuracy = 0.1, big.mark = ',')`, as indicated by the vertical [red]{foreground="red"} line.
-* Similar to the second variant, we obtain a bell-curve distribution for our closing scores; however, the impact of the casino has lead to a reduction in the expected closing score.
+* Similar to the second variant, we obtain a bell-curve distribution for our closing scores; however, the impact of the casino has lead to a reduction in the expected closing score and an increase in spread.
 
 ```{r include = TRUE}
 fnPlotDistributionClosingScores(variant3Analysis$CUMULATIVE_PROBS) +

@@ -45,12 +45,15 @@ fnPlotDistributionClosingScores <-
       ggplot(aes(x = VALUE, y = PROB)) +
       geom_col(fill = 'black', width = 1.0) +
       scale_x_continuous(
-        name = 'Score',
+        name = 'Closing Score',
         labels = scales::label_comma()
       ) +
       scale_y_continuous(
         name = 'Probability',
         labels = scales::label_percent(accuracy = 0.1)
+      ) +
+      coord_cartesian(
+        xlim = c(0.0, 2000.0)
       ) +
       ggtitle(
         label = 'Distribution of closing scores.'
