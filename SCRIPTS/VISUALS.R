@@ -43,7 +43,7 @@ fnPlotDistributionClosingScores <-
         name = 'PROB'
       ) |>
       ggplot(aes(x = VALUE, y = PROB)) +
-      geom_col() +
+      geom_col(fill = 'black', width = 1.0) +
       scale_x_continuous(
         name = 'Score',
         labels = scales::label_comma()
@@ -108,7 +108,8 @@ fnPlotDistributionByTurn <-
         labels = scales::label_percent(accuracy = 1.0)
       ) +
       ggtitle(
-        label = 'Distribution of dice rolls by turn.'
+        label = 'Distribution of dice rolls by turn.',
+        subtitle = '(Excludes opening turn)'
       ) +
       cowplot::theme_half_open() +
       cowplot::background_grid()

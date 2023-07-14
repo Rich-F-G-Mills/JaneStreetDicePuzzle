@@ -57,15 +57,19 @@ end
 ```
 
 ```{r loadLibraries}
+library (dplyr, warn.conflicts = FALSE)
 library (ggplot2, warn.conflicts = FALSE)
 library (glue, warn.conflicts = FALSE)
+library (htmltools, warn.conflicts = FALSE)
 library (rlang, warn.conflicts = FALSE)
+library (shiny, warn.conflicts = FALSE)
+library (tidyr, warn.conflicts = FALSE)
+library (xfun, warn.conflicts = FALSE)
 ```
 
-```{r loadVariants}
-source('SCRIPTS/PART_1.R', local = knitr::knit_global())
-source('SCRIPTS/PART_2.R', local = knitr::knit_global())
-source('SCRIPTS/VISUALS.R', local = knitr::knit_global())
+```{r loadScripts}
+fs::dir_ls(path = 'SCRIPTS', regexp = '(?i)R$') |>
+  purrr::walk(source, local = knitr::knit_global())
 ```
 
 ```{r registerLocalChunkHook}
@@ -82,6 +86,7 @@ knitr::opts_hooks$set(
 
 ```{css include = TRUE}
 h2 {
+  margin-top: 30px;
   text-decoration: underline;
 }
 
@@ -96,27 +101,27 @@ p:has(+ ul) {
 
 ## Introduction
 
-The purpose of this note is to show proposed solutions to the first two Jane Street dice puzzles proposed within the following [YouTube video](https://www.youtube.com/watch?v=NT_I1MjckaU&t=251s).
+The purpose of this note is to show proposed solutions to all three Jane Street dice puzzles proposed within the following [YouTube video](https://www.youtube.com/watch?v=NT_I1MjckaU&t=251s).
 
 ## First Variant
 
 The following rules apply:
 
--   There is a `r Dmax`-sided die.
--   There are `r Nmax` turns.
--   At each turn, the player can choose to either:
-    -   "Take" (ie. bank) the value as currently shown on the die.
-    -   Re-roll the dice, but without any pay-off.
--   The die initially shows a value of 1.
+* There is a `r Dmax`-sided die.
+* There are `r Nmax` turns.
+* At each turn, the player can choose to either:
+    * "Take" (ie. bank) the value as currently shown on the die.
+    * Re-roll the dice without any pay-off.
+* The die initially shows a value of 1.
 
-For example, the player could elect to repeatedly take the opening value of 1 for all `r Nmax` turns, giving a final banked value of `r Nmax`.
+For example, the player could (unwisely) elect to repeatedly take the opening value of 1 for all `r Nmax` turns, giving a final banked value of `r Nmax`.
 
 ### Possible Solution (Toy Example)
 
 As a simplified toy example, instead assume we have a 4-sided die over 6 turns.
 
 * Each node (ie. circle) represents a decision-point.
-* When determining the optimal strategy, the **expected future gain** for each of take and roll is considered; taking the value is considered the preferable strategy where this expected pay-off, considering all remaining turns, is at least as great as that for an otherwise roll.
+* When determining the optimal strategy, the **expected future gain** for each of take and roll is considered; "taking" the value is considered the preferable strategy where this expected pay-off, considering all remaining turns, is at least as great as that for a roll.
 * Those with a [**red**]{foreground="red"} and [**blue**]{foreground="blue"} outline reflect those nodes where the optimal decision is to roll and take respectively.
 * The expected future gain from such a decision is shown by the top and bottom numbers within each node.
 * The extent of the [**fill**]{background="lightblue"} within each node shows the probability of the player reaching that node, within a given turn.
@@ -388,10 +393,10 @@ However, we can still use the same underlying approach to identify the recommend
 
 #### Strategy
 
-* When the game starts, the player must always roll.
-* Should the die show any value on/above 18, the player is recommended to continually take for all remaining turns.
+* When the game starts, the player should always roll.
+* Should the die show any value on/above 18, the player is recommended to continually take that value for all remaining turns.
 * This also becomes the case for lower die values, once the game progresses.
-* These dice rolls effectively become **absorbing states**, albeit after a varying number of passed turns.
+* These dice rolls effectively become **absorbing states**, albeit after a varying number of elapsed turns.
 * For the last turn, as expected, the player is recommended to take the value regardless as there is no benefit from rolling.
 
 ```{r include = TRUE}
@@ -402,7 +407,7 @@ fnPlotRecommendedStrategy(variant1Analysis$STRATEGY)
 
 * This clearly highlights that, as turns progress, we are attracted to dice rolls 18, 19 and 20.
 * This is because, once those values are obtained, the strategy dictates that we will repeatedly take those values, with<u>out</u> any rolls.
-* Consequently, the probability of all other dice rolls approaches zero.
+* Consequently, assuming the strategy is followed, the probability of all other dice rolls approaches zero.
 
 ```{r include = TRUE}
 fnPlotDistributionByTurn(variant1Analysis$CUMULATIVE_PROBS)
@@ -420,20 +425,24 @@ variant1Expected <-
   dplyr::pull(EXPECTED)
 ```
 
--   The maximum possible score is `r Dmax` x `r Nmax` = `r scales::comma(Nmax * Dmax)`.
--   As a consequence of the strategy, we see that some values are more likely than others; we would expect the more significant spikes to be "near" multiples of 18, 19 and 20.
--   The expected closing score, using the proposed strategy, is `r scales::number(variant1Expected, accuracy = 0.1, big.mark = ',')`, as indicated by the vertical [red]{foreground="red"} line.
+* The maximum possible score is `r Dmax` x `r Nmax` = `r scales::comma(Nmax * Dmax)`.
+* As a consequence of the strategy, we see that some values are more likely than others; we would expect the more significant spikes to be "near" multiples of 18, 19 and 20; that is, some of the "lumpiness" is likely a consequence of those absorbing states.
+* The expected closing score, using the proposed strategy, is `r scales::number(variant1Expected, accuracy = 0.1, big.mark = ',')`, as indicated by the vertical [red]{foreground="red"} line.
 
 ```{r include = TRUE}
 fnPlotDistributionClosingScores(variant1Analysis$CUMULATIVE_PROBS) +
-  geom_vline(xintercept = variant1Expected, color = 'red')
+  geom_vline(
+    xintercept = variant1Expected,
+    color = 'red',
+    linewidth = 1.0
+  )
 ```
 
 ## Second Variant
 
 The rules are as for the first variant above, but with the following differences:
 
-* Any time the player chooses to bank the current value, the next turn (assuming there are turns remaining), must be a roll of the die.
+* Any time the player chooses to take (ie. bank) the current value, the next turn (assuming there are turns remaining), **must** be a roll of the die.
 * Unlike the decision to bank, there is no limit to consecutive rolls.
 
 For example, the player could roll, bank, roll, roll, bank, etc...
@@ -444,7 +453,7 @@ Revisiting the same toy example as before, we now observe the following.
 
 * Note that the layout is different as the available action at a given node depends on what action was taken for the <u>previous</u> turn; specifically, the rules specify that if a value was taken during the previous turn, the player **must** roll for the current turn.
 * For nodes where a roll is taken ([**red**]{foreground="red"} outline), lines connect to the roll/take nodes for the next turn which have the highest expected value for each respective dice roll.
-* For nodes where the value is taken ([**blue**]{foreground="blue"} outline), the node is directly linked (via **thick black** line) to the corresponding roll for that same die value at the next turn.
+* For nodes where the value is taken ([**blue**]{foreground="blue"} outline), the node is directly linked (via a diagonal **thick black** line) to the corresponding roll for that same die value at the next turn.
 
 ```{r part2ToyExample, local = TRUE, results = 'asis', include = TRUE}
 exampleResults <-
@@ -682,7 +691,7 @@ variant2OpeningStrategy <-
 ```
 
 * Note that, for the opening turn, the optimal strategy is to `r variant2OpeningStrategy`.
-* The recommended approach for any given combination of turn/roll depends on the prior action.
+* The recommended approach for any given combination of turn/roll depends on the prior action, which will (in turn) depend on that die value at that time.
 * Considering the recommended strategy where the prior action was to take the current value, there are _patches_ of turns/rolls which would never occur due to the chosen strategy; for example, we would never encounter a 2 where the prior value (which would also be 2) had been taken.
 * Not surprisingly, if turn `r Nmax-1` had been a roll, we would always take the value for the subsequent turn `r Nmax`.
 * Prior to turn ~90, we never take the current value where it is below 6; instead, a roll is preferred.
@@ -737,8 +746,84 @@ variant2ClosingSummary <-
 
 * The maximum possible score was `r scales::comma(variant2ClosingSummary$MAX)`.
 * The expected closing score, using the proposed strategy, is `r scales::number(variant2ClosingSummary$EXPECTED, accuracy = 0.1, big.mark = ',')`, as indicated by the vertical [red]{foreground="red"} line.
+* Unlike the first variant, we obtain a bell-curve distribution for our closing scores.
 
 ```{r include = TRUE}
 fnPlotDistributionClosingScores(variant2Analysis$CUMULATIVE_PROBS) +
-  geom_vline(xintercept = variant2ClosingSummary$EXPECTED, color = 'red')
+  geom_vline(
+    xintercept = variant2ClosingSummary$EXPECTED,
+    color = 'red',
+    linewidth = 1.0
+  )
+```
+
+## Third Variant
+
+The rules are, again, as for the first variant, but with the following difference:
+
+* Any time the player chooses to bank the current value, the "casino" can choose whether to roll the dice; this does not impact the amount taken, but does impact the die value for the next turn.
+
+### Proposed Solution {.tabset}
+
+The approach for the first variant has been extended as follows:
+
+* After each time the player has taken the die value, the casino will choose to roll where this leads to a reduction in the expected future value.
+* The player's decision will allow for this, assuming the casino will always act in the player's worst interest.
+
+```{r processVariant3}
+variant3Analysis <-
+  xfun::cache_rds(
+    expr = { fnPartIIIResults(Dmax, Nmax) },
+    hash =
+      list(
+        Dmax,
+        Nmax,
+        fs::file_info('SCRIPTS/PART_3.R')$modification_time
+      ),
+    dir = 'cache/'
+  )
+```
+
+#### Strategy
+
+* We note that the strategy is exactly as per the first variant.
+* However, we note that the casino will **always** re-roll every time the player takes money; the only exception is the very last turn, by which point the casino's decision will not matter.
+
+```{r include = TRUE}
+fnPlotPartIIIRecommendedStrategy(variant3Analysis$STRATEGY)
+```
+
+#### Visits
+
+* With the first variant, the values where the player decided to take the die value were absorbing states; once reached, the player would never choose to roll again.
+* Here, the casino can override this and, as seen in the strategy, will do so each time.
+* We now note that, when using this strategy, each die value is equally likely across all turns.
+
+```{r include = TRUE}
+fnPlotDistributionByTurn(variant3Analysis$CUMULATIVE_PROBS)
+```
+
+#### Outcomes
+
+```{r}
+variant3ClosingSummary <-
+  variant3Analysis$CUMULATIVE_PROBS |>
+  dplyr::slice_max(order_by = N) |>
+  dplyr::summarise(
+    EXPECTED = sum(PROB * VALUE),
+    MAX = max(VALUE)
+  )
+```
+
+* The maximum possible score was `r scales::comma(variant3ClosingSummary$MAX)`.
+* The expected closing score, using the proposed strategy, is `r scales::number(variant3ClosingSummary$EXPECTED, accuracy = 0.1, big.mark = ',')`, as indicated by the vertical [red]{foreground="red"} line.
+* Similar to the second variant, we obtain a bell-curve distribution for our closing scores; however, the impact of the casino has lead to a reduction in the expected closing score.
+
+```{r include = TRUE}
+fnPlotDistributionClosingScores(variant3Analysis$CUMULATIVE_PROBS) +
+  geom_vline(
+    xintercept = variant3ClosingSummary$EXPECTED,
+    color = 'red',
+    linewidth = 1.0
+  )
 ```
