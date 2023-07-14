@@ -1,13 +1,11 @@
 ---
 title: "Jane Street Dice Puzzle"
 output: 
-  html_document:
-    toc: true
-    toc_depth: 3
+  html_document: 
+    toc: yes
     toc_float:
-      smooth_scroll: true
-    keep_md: yes
-    pandoc_args: ["--lua-filter=ASSETS/colour-text.lua"]
+      smooth_scroll: yes
+    pandoc_args: "--lua-filter=ASSETS/colour-text.lua"
 author: "Richard Mills"
 date: "`r Sys.Date()`"
 ---
